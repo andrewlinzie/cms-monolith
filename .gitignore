@@ -10,4 +10,4 @@
 .env.*
 
 # Logs
-*.log
+*.log.venv/
