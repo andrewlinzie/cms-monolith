@@ -57,13 +57,18 @@ pipeline {
 
         stage('Pre-deploy checks on CMS') {
             steps {
-                sshagent(credentials: [env.CMS_SSH_CREDENTIALS_ID]) {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: env.CMS_SSH_CREDENTIALS_ID,
+                    keyFileVariable: 'CMS_SSH_KEY',
+                    usernameVariable: 'CMS_SSH_USER'
+                )]) {
                     sh '''#!/bin/bash -eu
                         if [ -z "${CMS_DEV_HOST:-}" ]; then
                           echo "Configure environment variable CMS_DEV_HOST (dev CMS public IP or DNS) on this job." >&2
                           exit 1
                         fi
-                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                        chmod 600 "$CMS_SSH_KEY"
+                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                           "set -eu; docker info >/dev/null; df -h /; docker ps -a --filter name=${CONTAINER_NAME} --format '{{.Names}} {{.Status}}' || true"
                     '''
                 }
@@ -72,30 +77,35 @@ pipeline {
 
         stage('Deploy to CMS') {
             steps {
-                sshagent(credentials: [env.CMS_SSH_CREDENTIALS_ID]) {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: env.CMS_SSH_CREDENTIALS_ID,
+                    keyFileVariable: 'CMS_SSH_KEY',
+                    usernameVariable: 'CMS_SSH_USER'
+                )]) {
                     sh '''#!/bin/bash -eu
                         if [ -z "${CMS_DEV_HOST:-}" ]; then
                           exit 1
                         fi
+                        chmod 600 "$CMS_SSH_KEY"
                         ECR_IMAGE=$(cat .jenkins-ecr-image-uri)
                         REGISTRY="${ECR_IMAGE%%/*}"
                         REMOTE_DIR="/tmp/jenkins-cms-deploy-${BUILD_NUMBER}"
 
-                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                           "rm -rf '${REMOTE_DIR}' && mkdir -p '${REMOTE_DIR}/scripts'"
 
-                        scp -o StrictHostKeyChecking=accept-new \
+                        scp -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new \
                           scripts/deploy.sh scripts/health_check.sh \
-                          ec2-user@"${CMS_DEV_HOST}:${REMOTE_DIR}/scripts/"
+                          "${CMS_SSH_USER}@${CMS_DEV_HOST}:${REMOTE_DIR}/scripts/"
 
                         aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
-                          | ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          | ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                               "docker login --username AWS --password-stdin ${REGISTRY}"
 
                         IMAGE_REPO="${ECR_IMAGE%:*}"
                         IMAGE_TAG="${ECR_IMAGE##*:}"
 
-                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                           "cd '${REMOTE_DIR}' && \
                            export IMAGE_REPO='${IMAGE_REPO}' IMAGE_TAG='${IMAGE_TAG}' \
                              CONTAINER_NAME='${CONTAINER_NAME}' HOST_PORT='${HOST_PORT}' \
@@ -103,10 +113,10 @@ pipeline {
                            chmod +x scripts/deploy.sh scripts/health_check.sh && \
                            ./scripts/deploy.sh"
 
-                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                           "docker ps --filter 'name=${CONTAINER_NAME}' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 
-                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
                           "curl -sf -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${HOST_PORT}/health"
                     '''
                 }
