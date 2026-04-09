@@ -113,7 +113,7 @@ pipeline {
                            chmod +x scripts/deploy.sh scripts/health_check.sh && \
                            ./scripts/deploy.sh"
 
-                        ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
                           "docker ps --filter 'name=${CONTAINER_NAME}' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 
                         ssh -i "$CMS_SSH_KEY" -o StrictHostKeyChecking=accept-new "${CMS_SSH_USER}@${CMS_DEV_HOST}" \
