@@ -2,16 +2,14 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_REPO = "cms-monolith"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
-        FULL_IMAGE = "${IMAGE_REPO}:${IMAGE_TAG}"
-
-        CONTAINER_NAME = "cms-monolith"
-        HOST_PORT = "8002"
-        CONTAINER_PORT = "8002"
-
-        APP_ENV = "dev"
-        LOG_LEVEL = "INFO"
+        AWS_DEFAULT_REGION = 'us-east-2'
+        ECR_REPOSITORY = 'cms-monolith'
+        CONTAINER_NAME = 'cms-monolith'
+        HOST_PORT = '8002'
+        CONTAINER_PORT = '8002'
+        APP_ENV = 'dev'
+        LOG_LEVEL = 'INFO'
+        CMS_SSH_CREDENTIALS_ID = 'cms-dev-ssh'
     }
 
     stages {
@@ -35,69 +33,83 @@ pipeline {
         stage('Build') {
             steps {
                 sh '''
-                    docker build -t ${IMAGE_REPO}:latest .
+                    docker build -t "${ECR_REPOSITORY}:jenkins-${BUILD_NUMBER}" .
                 '''
             }
         }
 
-        stage('Tag') {
+        stage('Login to ECR and push') {
             steps {
                 sh '''
-                    docker tag ${IMAGE_REPO}:latest ${FULL_IMAGE}
+                    set -eu
+                    ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+                    REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+                    ECR_IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${GIT_COMMIT}"
+                    docker tag "${ECR_REPOSITORY}:jenkins-${BUILD_NUMBER}" "${ECR_IMAGE}"
+                    aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
+                      | docker login --username AWS --password-stdin "${REGISTRY}"
+                    docker push "${ECR_IMAGE}"
+                    printf '%s' "${ECR_IMAGE}" > .jenkins-ecr-image-uri
+                    echo "Pushed: ${ECR_IMAGE}"
                 '''
             }
         }
 
-        stage('Push') {
+        stage('Pre-deploy checks on CMS') {
             steps {
-                sh '''
-                    echo "Push stage placeholder"
-                    echo "In a real pipeline, authenticate to ECR and push ${FULL_IMAGE}"
-                '''
+                sshagent(credentials: [env.CMS_SSH_CREDENTIALS_ID]) {
+                    sh '''#!/bin/bash -eu
+                        if [ -z "${CMS_DEV_HOST:-}" ]; then
+                          echo "Configure environment variable CMS_DEV_HOST (dev CMS public IP or DNS) on this job." >&2
+                          exit 1
+                        fi
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          "set -eu; docker info >/dev/null; df -h /; docker ps -a --filter name=${CONTAINER_NAME} --format '{{.Names}} {{.Status}}' || true"
+                    '''
+                }
             }
         }
 
-        stage('Pre-Deploy Safety Checks') {
+        stage('Deploy to CMS') {
             steps {
-                sh '''
-                    echo "Checking Docker availability..."
-                    docker --version
+                sshagent(credentials: [env.CMS_SSH_CREDENTIALS_ID]) {
+                    sh '''#!/bin/bash -eu
+                        if [ -z "${CMS_DEV_HOST:-}" ]; then
+                          exit 1
+                        fi
+                        ECR_IMAGE=$(cat .jenkins-ecr-image-uri)
+                        REGISTRY="${ECR_IMAGE%%/*}"
+                        REMOTE_DIR="/tmp/jenkins-cms-deploy-${BUILD_NUMBER}"
 
-                    echo "Checking available disk space..."
-                    df -h
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          "rm -rf '${REMOTE_DIR}' && mkdir -p '${REMOTE_DIR}/scripts'"
 
-                    echo "Checking whether host port ${HOST_PORT} is already in use..."
-                    if lsof -i :${HOST_PORT}; then
-                      echo "Port ${HOST_PORT} is in use. Existing container may be replaced during deploy."
-                    else
-                      echo "Port ${HOST_PORT} is free."
-                    fi
-                '''
-            }
-        }
+                        scp -o StrictHostKeyChecking=accept-new \
+                          scripts/deploy.sh scripts/health_check.sh \
+                          ec2-user@"${CMS_DEV_HOST}:${REMOTE_DIR}/scripts/"
 
-        stage('Deploy') {
-            steps {
-                sh '''
-                    chmod +x scripts/deploy.sh scripts/restart.sh scripts/health_check.sh scripts/rollback.sh
+                        aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
+                          | ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                              "docker login --username AWS --password-stdin ${REGISTRY}"
 
-                    IMAGE_REPO=${IMAGE_REPO} \
-                    IMAGE_TAG=${IMAGE_TAG} \
-                    CONTAINER_NAME=${CONTAINER_NAME} \
-                    HOST_PORT=${HOST_PORT} \
-                    CONTAINER_PORT=${CONTAINER_PORT} \
-                    APP_ENV=${APP_ENV} \
-                    LOG_LEVEL=${LOG_LEVEL} \
-                    ./scripts/deploy.sh
-                '''
-            }
-        }
+                        IMAGE_REPO="${ECR_IMAGE%:*}"
+                        IMAGE_TAG="${ECR_IMAGE##*:}"
 
-        stage('Post-Deploy Health Validation') {
-            steps {
-                sh '''
-                    HOST=127.0.0.1 PORT=${HOST_PORT} ./scripts/health_check.sh
-                '''
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          "cd '${REMOTE_DIR}' && \
+                           export IMAGE_REPO='${IMAGE_REPO}' IMAGE_TAG='${IMAGE_TAG}' \
+                             CONTAINER_NAME='${CONTAINER_NAME}' HOST_PORT='${HOST_PORT}' \
+                             CONTAINER_PORT='${CONTAINER_PORT}' APP_ENV='${APP_ENV}' LOG_LEVEL='${LOG_LEVEL}' && \
+                           chmod +x scripts/deploy.sh scripts/health_check.sh && \
+                           ./scripts/deploy.sh"
+
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          "docker ps --filter 'name=${CONTAINER_NAME}' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+
+                        ssh -o StrictHostKeyChecking=accept-new ec2-user@"${CMS_DEV_HOST}" \
+                          "curl -sf -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${HOST_PORT}/health"
+                    '''
+                }
             }
         }
     }
