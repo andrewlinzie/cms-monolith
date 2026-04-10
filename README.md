@@ -112,3 +112,5 @@ ROLLBACK_TAG=previous ./scripts/rollback.sh
 * ECR image push
 * EC2 instance provisioning (Terraform)
 * Runtime monitoring and observability
+
+Jenkins automated pipeline test
