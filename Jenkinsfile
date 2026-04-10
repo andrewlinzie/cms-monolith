@@ -142,21 +142,23 @@ pipeline {
 
         stage('Prepare image reference') {
             steps {
-                sh '''
-                    set -eu
-                    ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-                    REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+                script {
+                    sh """
+                        set -eu
+                        ACCOUNT=\$(aws sts get-caller-identity --query Account --output text)
+                        REGISTRY="\${ACCOUNT}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
 
-                    if [ "${TARGET_ENV}" = "dev" ]; then
-                      test -f .jenkins-ecr-image-uri
-                      ECR_IMAGE=$(cat .jenkins-ecr-image-uri)
-                    else
-                      ECR_IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-                    fi
+                        if [ "${params.TARGET_ENV}" = "dev" ]; then
+                          test -f .jenkins-ecr-image-uri
+                          ECR_IMAGE=\$(cat .jenkins-ecr-image-uri)
+                        else
+                          ECR_IMAGE="\${REGISTRY}/${ECR_REPOSITORY}:${params.IMAGE_TAG}"
+                        fi
 
-                    printf '%s' "${ECR_IMAGE}" > .jenkins-ecr-image-uri
-                    echo "Using image: ${ECR_IMAGE}"
-                '''
+                        printf '%s' "\${ECR_IMAGE}" > .jenkins-ecr-image-uri
+                        echo "Using image: \${ECR_IMAGE}"
+                    """
+                }
             }
         }
 
