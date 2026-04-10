@@ -15,7 +15,7 @@ pipeline {
         )
         string(
             name: 'CMS_DEV_HOST',
-            defaultValue: '',
+            defaultValue: '3.145.18.32',
             trim: true,
             description: 'Dev CMS public IP or DNS'
         )
