@@ -13,3 +13,4 @@ def get_resources():
 @router.post("", response_model=ResourceItem)
 def post_resource(resource: ResourceItem):
     return create_resource(resource)
+    
