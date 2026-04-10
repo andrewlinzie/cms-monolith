@@ -60,17 +60,17 @@ pipeline {
                         case 'dev':
                             env.DEPLOY_HOST = params.CMS_DEV_HOST?.trim()
                             env.CMS_SSH_CREDENTIALS_ID = 'cms-dev-ssh'
-                            env.APP_ENV = 'dev'
+                            env.DEPLOY_APP_ENV = 'dev'
                             break
                         case 'staging':
                             env.DEPLOY_HOST = params.CMS_STAGING_HOST?.trim()
                             env.CMS_SSH_CREDENTIALS_ID = 'cms-staging-ssh'
-                            env.APP_ENV = 'staging'
+                            env.DEPLOY_APP_ENV = 'staging'
                             break
                         case 'prod':
                             env.DEPLOY_HOST = params.CMS_PROD_HOST?.trim()
                             env.CMS_SSH_CREDENTIALS_ID = 'cms-prod-ssh'
-                            env.APP_ENV = 'prod'
+                            env.DEPLOY_APP_ENV = 'prod'
                             break
                         default:
                             error("Unsupported TARGET_ENV: ${targetEnv}")
@@ -83,7 +83,7 @@ pipeline {
                     echo "Resolved deployment context:"
                     echo "  TARGET_ENV=${targetEnv}"
                     echo "  DEPLOY_HOST=${env.DEPLOY_HOST}"
-                    echo "  APP_ENV=${env.APP_ENV}"
+                    echo "  DEPLOY_APP_ENV=${env.DEPLOY_APP_ENV}"
                     echo "  CMS_SSH_CREDENTIALS_ID=${env.CMS_SSH_CREDENTIALS_ID}"
                 }
             }
@@ -199,7 +199,7 @@ pipeline {
                           "cd '${REMOTE_DIR}' && \
                            export IMAGE_REPO='${IMAGE_REPO}' IMAGE_TAG='${IMAGE_TAG_RESOLVED}' \
                              CONTAINER_NAME='${CONTAINER_NAME}' HOST_PORT='${HOST_PORT}' \
-                             CONTAINER_PORT='${CONTAINER_PORT}' APP_ENV='${APP_ENV}' LOG_LEVEL='${LOG_LEVEL}' && \
+                             CONTAINER_PORT='${CONTAINER_PORT}' APP_ENV='${DEPLOY_APP_ENV}' LOG_LEVEL='${LOG_LEVEL}' && \
                            chmod +x scripts/deploy.sh scripts/health_check.sh && \
                            ./scripts/deploy.sh"
 
