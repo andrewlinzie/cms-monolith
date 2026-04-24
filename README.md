@@ -1,11 +1,27 @@
 # cms-monolith
 
 ## Purpose
-Houses the internal CMS application used by the content team.
+
+The CMS Monolith is an internal application used by a content team to manage platform data and workflows.
+
+It is intentionally deployed outside of Kubernetes as a standalone service running on EC2.
+
+It is responsible for:
+- managing internal content and operational data
+- serving internal users (non-public system)
+- running as a containerized application on EC2
+- supporting simple deployment and operational workflows
+
+It is not responsible for:
+- handling public API traffic
+- participating in the GitOps deployment model
+- running within the EKS cluster
+- managing infrastructure or deployment state
 
 ---
 
 ## Contains
+
 - CMS application code
 - Dockerfile
 - Jenkinsfile
@@ -14,10 +30,43 @@ Houses the internal CMS application used by the content team.
 ---
 
 ## Does Not Contain
+
 - Kubernetes manifests
 - GitOps deployment state
 - Terraform infrastructure code
 - Microservice Helm charts
+
+---
+
+## Deployment Model
+
+This service follows a traditional CI/CD model and does NOT use GitOps.
+
+Instead:
+
+- Jenkins builds the Docker image
+- The image is deployed directly to an EC2 instance
+- Deployment scripts manage container lifecycle (start, stop, restart, rollback)
+
+This creates a hybrid architecture where:
+
+- Microservices (API + AI) -> deployed via GitOps on EKS
+- CMS Monolith -> deployed directly to EC2 via Jenkins
+
+This decision prioritizes simplicity for an internal, low-concurrency system.
+
+---
+
+## CI/CD Model
+
+- Built and deployed via Jenkins
+- Containerized using Docker
+- Deployed directly to EC2 (non-Kubernetes workload)
+- Uses deployment scripts for lifecycle management
+
+This service intentionally uses a different delivery model than the EKS-based microservices.
+
+It reflects a real-world hybrid system where not all workloads require Kubernetes orchestration.
 
 ---
 
@@ -97,20 +146,20 @@ ROLLBACK_TAG=previous ./scripts/rollback.sh
 
 ---
 
-## CI/CD Model
+## Key Architectural Decisions
 
-* Built and deployed via Jenkins
-* Containerized using Docker
-* Deployed to EC2 (non-Kubernetes workload)
-* Separate delivery path from EKS microservices
+- Deployed outside Kubernetes to reduce operational complexity
+- Uses EC2 + Docker instead of EKS for a simpler internal workload
+- Separate CI/CD pipeline (Jenkins) from microservices (GitHub Actions)
+- Hybrid architecture allows selecting the right tool for each workload
+
+This demonstrates that not all services need Kubernetes, especially for internal systems with lower scaling requirements.
 
 ---
 
-## Future Phases
+## Future Enhancements
 
-* Jenkins pipeline execution
-* ECR image push
-* EC2 instance provisioning (Terraform)
-* Runtime monitoring and observability
-
-Jenkins automated pipeline test
+- Push Docker images to ECR for centralized registry management
+- Improve deployment automation and rollback safety
+- Add runtime monitoring and observability
+- Strengthen CI/CD pipeline validation and reliability
