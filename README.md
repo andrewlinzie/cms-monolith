@@ -161,5 +161,20 @@ This demonstrates that not all services need Kubernetes, especially for internal
 
 - Push Docker images to ECR for centralized registry management
 - Improve deployment automation and rollback safety
-- Add runtime monitoring and observability
 - Strengthen CI/CD pipeline validation and reliability
+
+---
+
+## Monitoring
+
+The CMS is monitored using AWS CloudWatch.
+
+Metrics include:
+
+- EC2 status checks
+- CPU utilization
+- basic host health
+
+This reflects a pragmatic design decision:
+
+The CMS is internal and low-concurrency, so it uses simpler AWS-native monitoring rather than full Kubernetes observability tooling.
